@@ -1,0 +1,9 @@
+{
+    "siderolabs/pkgs": {
+        "kernel": {
+            "version": "6.2.15",
+            "sha256": "9ffa34921044660c6adb3eb5fd996192e322b15bbf532fe4e4e7a47079ed8fc1",
+            "sha512": "6e98257946424fd5d511ff7cb9f18a09c228a3be4bff3b06a82e2b7afb5881342314014cd7cdb4a42101ff836ff23930cf6b2d8589bc4651d3d7bbd651a2439d"
+        }
+    }
+}

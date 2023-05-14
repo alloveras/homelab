@@ -1,0 +1,133 @@
+name: "Talos: Hardkernel Odroid M1"
+on:
+  push:
+    branches:
+      - "master"
+    paths:
+      - ".github/workflows/talos-hardkernel-odroid-m1.yaml"
+      - "boards/hardkernel/odroid-m1/**"
+
+jobs:
+  
+  kernel:
+    name: "Build & Push Kernel Image"
+    runs-on: "ubuntu-22.04"
+  
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:    
+      # Use QEMU to allow builds for aarch64.
+      # https://github.com/docker/setup-qemu-action
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: "Login to GitHub Container Registry"
+        uses: docker/login-action@v2
+        with:
+          registry: "ghcr.io"
+          username: "${{ github.actor }}"
+          password: "${{ github.token }}"
+
+      - name: "Checkout github.com/${{ github.repository }}"
+        uses: "actions/checkout@v3"
+        with:
+          path: "${{ github.repository }}"
+
+      - name: "Checkout github.com/siderolabs/pkgs"
+        uses: "actions/checkout@v3"
+        with:
+          repository: "siderolabs/pkgs"
+          path: "siderolabs/pkgs"
+          ref: "v1.4.0"
+          fetch-depth: 1
+      
+      - name: "Set Environment Variables"
+        shell: "bash"
+        run: |
+          echo "CHECKOUT_ROOT_PATH=${{ github.workspace }}" >> "${GITHUB_ENV}"
+          echo "PKGS_CHECKOUT_PATH=${PWD}/siderolabs/pkgs" >> ${GITHUB_ENV}
+          echo "BUILD_TAG=$(date +%Y%m%d).$(git rev-list --count --since=midnight --until=now master)" >> "${GITHUB_ENV}"
+
+          echo "KERNEL_VERSION=$(jq -r '."siderolabs/pkgs".kernel.version' "${{ github.workspace }}/${{ github.repository }}/boards/hardkernel/odroid-m1/versions.json")" >> "${GITHUB_ENV}"
+          echo "KERNEL_SHA256=$(jq -r '."siderolabs/pkgs".kernel.sha256' "${{ github.workspace }}/${{ github.repository }}/boards/hardkernel/odroid-m1/versions.json")" >> "${GITHUB_ENV}"
+          echo "KERNEL_SHA512=$(jq -r '."siderolabs/pkgs".kernel.sha512' "${{ github.workspace }}/${{ github.repository }}/boards/hardkernel/odroid-m1/versions.json")" >> "${GITHUB_ENV}"
+          
+      - name: "Apply Patches"
+        shell: "bash"
+        run: |
+          (
+            cd "${{ env.PKGS_CHECKOUT_PATH }}" && \
+            patch -p1 -i "${{ env.CHECKOUT_ROOT_PATH }}/${{ github.repository }}/boards/hardkernel/odroid-m1/Kconfig.patch"
+          )
+          (
+            cd "${{ env.PKGS_CHECKOUT_PATH }}" && \
+            sed -E -i "s/^([ \t].)linux_version: [0-9]+.[0-9]+.[0-9]+$/\1linux_version: ${{ env.KERNEL_VERSION }}/g" Pkgfile && \
+            sed -E -i "s/^([ \t].)linux_sha256: [0-9a-f]+$/\1linux_sha256: ${{ env.KERNEL_SHA256}}/g" Pkgfile && \
+            sed -E -i "s/^([ \t].)linux_sha512: [0-9a-f]+$/\1linux_sha512: ${{ env.KERNEL_SHA512}}/g" Pkgfile
+          )
+          
+      - name: "Build Kernel"
+        shell: "bash"
+        working-directory: "${{ env.PKGS_CHECKOUT_PATH }}"
+        run: |
+          make kernel \
+            PLATFORM="linux/arm64" \
+            REGISTRY="ghcr.io" \
+            USERNAME="${{ github.repository }}/talos/kernel" \
+            TAG="hardkernel-odroid-m1-${KERNEL_VERSION}-${BUILD_TAG}" \
+            PUSH=true
+
+  # installer:
+  #   name: "Build & Push Installer Image"
+  #   runs-on: "ubuntu-22.04"
+    
+  #   needs: 
+  #     - "kernel"
+  
+  #   permissions:
+  #     contents: read
+  #     packages: write
+    
+  #   steps:    
+  #     # Use QEMU to allow builds for aarch64.
+  #     # https://github.com/docker/setup-qemu-action
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v2
+      
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v2
+
+  #     - name: "Login to GitHub Container Registry"
+  #       uses: docker/login-action@v2
+  #       with:
+  #         registry: "ghcr.io"
+  #         username: "${{ github.actor }}"
+  #         password: "${{ github.token }}"
+
+  #     - name: "Set Environment Variables"
+  #       shell: "bash"
+  #       run: |
+  #         echo "TALOS_CHECKOUT_PATH=${PWD}/siderolabs/talos" >> ${GITHUB_ENV}
+  #         echo "BUILD_TAG=$(date +%Y%m%d).$(git rev-list --count --since=midnight --until=now master)" >> "${GITHUB_ENV}
+
+  #     - name: "Checkout ${{ github.repository }}"
+  #       uses: "actions/checkout@v3"
+  #       with:
+  #         path: "${{ github.repository }}"
+
+  #     - name: "Checkout github.com/siderolabs/talos"
+  #       uses: "actions/checkout@v3"
+  #       with:
+  #         repository: siderolabs/talos
+  #         path: "${{ env.TALOS_CHECKOUT_PATH }}"
+  #         ref: "v1.4.4"
+      
+  #     - name: "Apply patches"
+  #       shell: "bash"
+  #       run: |
+  #         sed -E "s/DefaultKernelVersion = \"[0-9]+.[0-9]+.[0-9]+-talos\"/DefaultKernelVersion = \"${KERNEL_VERSION}-talos\"/g" pkg/machinery/constants/constants.go
